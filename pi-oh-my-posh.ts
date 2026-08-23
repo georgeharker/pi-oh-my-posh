@@ -343,6 +343,8 @@ const LENS_LABEL = (() => {
   return /^(1|true|yes|on)$/i.test(v) ? "lens " : v + " ";
 })();
 
+const LENS_GLYPH = "\uf002"; // nf-fa-search
+
 function decodePiLens(text: string): string | null {
   let o: Record<string, unknown>;
   try {
@@ -362,9 +364,15 @@ function decodePiLens(text: string): string | null {
 
 /** Turn a structured status value into a chip; passthrough for plain text. */
 function decodeStatus(key: string, text: string): string {
+  // @harms-haus/pi-lens: key "pi-lens", JSON value -> p<i> l<i> s<i> t<i> chip.
   if (key === "pi-lens" || key.endsWith(":pi-lens")) {
     const chip = decodePiLens(text);
-    if (chip !== null) return chip; // "" hides it (all-pending); a chip replaces the JSON
+    if (chip !== null) return chip; // "" hides it (all-pending)
+  }
+  // Unscoped pi-lens (v4+): key "pi-lens-lsp", value already human text
+  // ("LSP Inactive" / "sym · sym"). Decorate into a recognizable magnifier chip.
+  if (/(^|:)pi-lens(-|$)/.test(key)) {
+    return text ? LENS_GLYPH + " " + LENS_LABEL + text : "";
   }
   return text;
 }
