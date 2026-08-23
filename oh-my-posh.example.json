@@ -1,0 +1,17 @@
+{
+  "//": "Copy to $PI_CODING_AGENT_DIR/oh-my-posh.json (default ~/.pi/agent/oh-my-posh.json; on this machine ~/.config/pi/agent/oh-my-posh.json), or project-local ./.pi/oh-my-posh.json. All fields optional; a matching PI_OMP_* env var overrides the file.",
+
+  "config": "~/.config/oh-my-posh/pi.toml",
+  "bin": "oh-my-posh",
+  "prompt": "primary",
+
+  "gaugeWidth": 10,
+  "gaugeMarked": "▰",
+  "gaugeUnmarked": "▱",
+
+  "status": "all",
+  "statusSeparator": "  ",
+
+  "icons": "default",
+  "lensLabel": true
+}

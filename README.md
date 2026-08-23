@@ -85,14 +85,39 @@ via glyph *shape* (filled  vs hollow  circle), since a themed segment paints one
 Defaults: `📡→` (wifi) `🟢→` `🔴→` (filled) `🟡→` `⚪→` (hollow) `📱→` (mobile)
 `🔌→` (plug) `⚡→` (bolt). Edit `DEFAULT_ICONS` in the extension to change the built-ins.
 
-## Configuration (env vars)
+## Configuration
 
-| Var                  | Default              | Purpose                                   |
-|----------------------|----------------------|-------------------------------------------|
-| `PI_OMP_CONFIG`      | auto (see below)     | override the config path                  |
-| `PI_OMP_BIN`         | `oh-my-posh`         | Oh My Posh binary                         |
-| `PI_OMP_GAUGE_WIDTH` | `10`                 | cells in the `▰▱` gauge                    |
-| `PI_OMP_PROMPT`      | `primary`            | which OMP prompt to print                 |
+Settings live in a JSON file in your pi config dir — **no env vars needed**:
+
+- `$PI_CODING_AGENT_DIR/oh-my-posh.json` (default `~/.pi/agent/oh-my-posh.json`), and
+- `./.pi/oh-my-posh.json` (project-local; overrides the global one).
+
+Every field is optional (see [`oh-my-posh.example.json`](./oh-my-posh.example.json)):
+
+| Field | Default | Purpose |
+|-------|---------|---------|
+| `config` | auto (see below) | omp theme path (`~` ok); omit to auto-detect |
+| `bin` | `oh-my-posh` | Oh My Posh binary |
+| `prompt` | `primary` | which OMP prompt to print |
+| `gaugeWidth` | `10` | cells in the `▰▱` gauge |
+| `gaugeMarked` / `gaugeUnmarked` | `▰` / `▱` | gauge cell glyphs |
+| `status` | `"all"` | `"all"` · `"none"` · `"k1,k2"` · `["k1","k2"]` — which status chips |
+| `statusSeparator` | `"  "` | join between chips |
+| `icons` | `"default"` | `"default"` · `"none"` · `{ "📡": "" }` — emoji→glyph remap |
+| `lensLabel` | `false` | `false` · `true` (→ `lens`) · `"word"` — pi-lens chip label |
+
+Example (remote-pi remap on, pi-lens chip labeled):
+
+```json
+{ "icons": "default", "lensLabel": true }
+```
+
+### Env overrides
+
+Any `PI_OMP_*` env var still wins over the file, for one-off overrides:
+`PI_OMP_CONFIG`, `PI_OMP_BIN`, `PI_OMP_PROMPT`, `PI_OMP_GAUGE_WIDTH`,
+`PI_OMP_GAUGE_MARKED`/`PI_OMP_GAUGE_UNMARKED`, `PI_OMP_STATUS`, `PI_OMP_STATUS_SEP`,
+`PI_OMP_ICONS`, `PI_OMP_LENS_LABEL`.
 
 ### Config resolution (no env needed)
 

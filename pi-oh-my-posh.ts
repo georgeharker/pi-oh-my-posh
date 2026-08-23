@@ -42,7 +42,7 @@
  */
 
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -105,20 +105,77 @@ interface PiExtensionApi {
 }
 
 // ---- configuration -----------------------------------------------------------
+//
+// Settings live in a JSON file in the pi config dir — no env needed:
+//   $PI_CODING_AGENT_DIR/oh-my-posh.json   (default ~/.pi/agent/oh-my-posh.json)
+//   ./.pi/oh-my-posh.json                  (project-local; overrides the global one)
+// Every field is optional. See oh-my-posh.example.json. A matching PI_OMP_* env var
+// still wins over the file, for one-off overrides.
+//
+// {
+//   "config": "~/.config/oh-my-posh/pi.toml", // omp theme; omit for auto-detect
+//   "bin": "oh-my-posh",
+//   "prompt": "primary",
+//   "gaugeWidth": 10, "gaugeMarked": "▰", "gaugeUnmarked": "▱",
+//   "status": "all",              // "all" | "none" | "k1,k2" | ["k1","k2"]
+//   "statusSeparator": "  ",
+//   "icons": "default",           // "default" | "none" | { "📡": "<glyph>", ... }
+//   "lensLabel": false            // false | true (=> "lens") | "word"
+// }
 
-const BIN = process.env.PI_OMP_BIN || "oh-my-posh";
-const PROMPT_TYPE = process.env.PI_OMP_PROMPT || "primary";
-const GAUGE_WIDTH = clampInt(process.env.PI_OMP_GAUGE_WIDTH, 10, 1, 40);
+interface OmpSettings {
+  config?: string;
+  bin?: string;
+  prompt?: string;
+  gaugeWidth?: number;
+  gaugeMarked?: string;
+  gaugeUnmarked?: string;
+  status?: string | string[];
+  statusSeparator?: string;
+  icons?: "default" | "none" | Record<string, string>;
+  lensLabel?: boolean | string;
+}
+
+function expandHome(p: string): string {
+  return p.replace(/^~(?=\/|$)/, process.env.HOME || homedir());
+}
+
+function loadSettings(): OmpSettings {
+  const home = process.env.HOME || homedir();
+  const agentDir = process.env.PI_CODING_AGENT_DIR || join(home, ".pi", "agent");
+  const files = [join(agentDir, "oh-my-posh.json"), join(process.cwd(), ".pi", "oh-my-posh.json")];
+  let cfg: OmpSettings = {};
+  for (const f of files) {
+    try {
+      cfg = { ...cfg, ...(JSON.parse(readFileSync(f, "utf8")) as OmpSettings) };
+    } catch {
+      /* missing or invalid — ignore */
+    }
+  }
+  return cfg;
+}
+const SETTINGS = loadSettings();
+
+const BIN = process.env.PI_OMP_BIN || SETTINGS.bin || "oh-my-posh";
+const PROMPT_TYPE = process.env.PI_OMP_PROMPT || SETTINGS.prompt || "primary";
+const GAUGE_WIDTH = clampInt(
+  process.env.PI_OMP_GAUGE_WIDTH ?? (SETTINGS.gaugeWidth != null ? String(SETTINGS.gaugeWidth) : undefined),
+  10,
+  1,
+  40,
+);
+const GAUGE_MARKED = process.env.PI_OMP_GAUGE_MARKED || SETTINGS.gaugeMarked || "▰";
+const GAUGE_UNMARKED = process.env.PI_OMP_GAUGE_UNMARKED || SETTINGS.gaugeUnmarked || "▱";
+
 /**
- * Pick the Oh My Posh config, first existing wins — no env needed in the common case:
- *   1. PI_OMP_CONFIG            explicit override
- *   2. <omp config dir>/pi.*    a pi.{toml,omp.toml,json,omp.json,yaml,omp.yaml} you drop
- *                               next to your theme (~/.config/oh-my-posh, or $XDG / $POSH_)
- *   3. bundled pi.omp.toml      (present only if generated locally)
- *   4. bundled pi.omp.json      generic default (always exists)
+ * Pick the Oh My Posh theme, first existing wins — no env needed in the common case:
+ *   1. PI_OMP_CONFIG env, then settings.config (both ~-expanded)
+ *   2. <omp config dir>/pi.*  (~/.config/oh-my-posh, $XDG, or $POSH_THEMES_PATH dir)
+ *   3. bundled pi.omp.toml, then pi.omp.json (generic default, always exists)
  */
 function resolveConfig(): string {
-  if (process.env.PI_OMP_CONFIG) return process.env.PI_OMP_CONFIG;
+  const explicit = process.env.PI_OMP_CONFIG || SETTINGS.config;
+  if (explicit) return expandHome(explicit);
   const here = dirname(fileURLToPath(import.meta.url));
   const home = process.env.HOME || homedir();
   const xdg = process.env.XDG_CONFIG_HOME || join(home, ".config");
@@ -142,22 +199,24 @@ function resolveConfig(): string {
 }
 const CONFIG_PATH = resolveConfig();
 
-const GAUGE_MARKED = "▰";
-const GAUGE_UNMARKED = "▱";
-
 // Which extension statuses (from ctx.ui.setStatus, e.g. remote-pi's) to surface:
-//   unset / "all"      -> every published status
-//   "none"             -> suppress the aggregated PI_STATUS
-//   "a,b,c"            -> allowlist of exact status keys, in that order
+//   "all" (default) -> every published status
+//   "none"          -> suppress the aggregated PI_STATUS
+//   "a,b,c" / [..]  -> allowlist of exact status keys, in that order
 // Per-key vars (PI_STATUS_<KEY>) are always exported regardless of this.
-const STATUS_SELECT = (process.env.PI_OMP_STATUS || "all").trim();
-const STATUS_SEP = process.env.PI_OMP_STATUS_SEP ?? "  ";
+const STATUS_SELECT = (
+  process.env.PI_OMP_STATUS ??
+  (Array.isArray(SETTINGS.status) ? SETTINGS.status.join(",") : SETTINGS.status) ??
+  "all"
+).trim();
+const STATUS_SEP = process.env.PI_OMP_STATUS_SEP ?? SETTINGS.statusSeparator ?? "  ";
 
 // Other extensions embed emoji directly in their status text (remote-pi uses 📡 🟢 🟡 📱).
 // Remap them to monochrome Nerd Font glyphs so the footer stays consistent with a powerline
 // theme. State that emoji encode via COLOR (🟢 on / 🟡 waiting) is preserved via glyph SHAPE
 // (filled vs hollow circle), since a themed segment paints one foreground.
-// Override with PI_OMP_ICONS="📡=,🟢=" (merged over defaults) or disable with "none".
+// Override via settings.icons ("none" to disable, or a { "📡": "<glyph>" } map merged over
+// defaults) or PI_OMP_ICONS="📡=,🟢=" (env wins).
 const DEFAULT_ICONS: Record<string, string> = {
   "📡": "", // nf-fa-wifi — broadcast/relay session
   "🟢": "", // nf-fa-circle — filled (ready/on)
@@ -169,9 +228,11 @@ const DEFAULT_ICONS: Record<string, string> = {
   "⚡": "", // nf-fa-bolt
 };
 function parseIconMap(): Record<string, string> {
-  const raw = (process.env.PI_OMP_ICONS ?? "default").trim();
-  if (raw === "none" || raw === "off") return {};
+  const src = process.env.PI_OMP_ICONS ?? SETTINGS.icons ?? "default";
+  if (src === "none" || src === "off") return {};
   const map: Record<string, string> = { ...DEFAULT_ICONS };
+  if (typeof src === "object") return { ...map, ...src }; // { "📡": "<glyph>" } merged over defaults
+  const raw = String(src).trim();
   if (raw === "" || raw === "default") return map;
   for (const pair of raw.split(",")) {
     const i = pair.indexOf("=");
@@ -274,7 +335,10 @@ const LENS_CATS: Array<[string, string]> = [
 // Optional descriptor before the lens icons. PI_OMP_LENS_LABEL=1 -> "lens", or any
 // custom word; empty (default) shows just the magnifier + icons.
 const LENS_LABEL = (() => {
-  const v = (process.env.PI_OMP_LENS_LABEL ?? "").trim();
+  const s = process.env.PI_OMP_LENS_LABEL ?? SETTINGS.lensLabel;
+  if (s === undefined || s === false) return "";
+  if (s === true) return "lens ";
+  const v = String(s).trim();
   if (!v) return "";
   return /^(1|true|yes|on)$/i.test(v) ? "lens " : v + " ";
 })();
