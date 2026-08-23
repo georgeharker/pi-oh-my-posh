@@ -1,0 +1,31 @@
+name: Publish Package
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  id-token: write # Required for OIDC trusted publishing
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+          # NB: no registry-url — it writes an .npmrc expecting NODE_AUTH_TOKEN,
+          # which shadows OIDC trusted publishing and makes `npm publish` 404.
+
+      - run: npm install -g npm@latest
+
+      - run: npm ci
+      - run: npm run build --if-present
+      - run: npm test
+      - run: npm publish --provenance --access public

@@ -1,0 +1,50 @@
+{
+  "name": "@geohar/pi-oh-my-posh",
+  "version": "0.1.0",
+  "description": "Render pi coding agent's footer with Oh My Posh — reuse your shell prompt's theme (powerline, palette, glyphs) plus pi context/model/tokens and other extensions' status chips.",
+  "license": "MIT",
+  "author": "George Harker <george@georgeharker.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/georgeharker/pi-oh-my-posh.git"
+  },
+  "bugs": {
+    "url": "https://github.com/georgeharker/pi-oh-my-posh/issues"
+  },
+  "homepage": "https://github.com/georgeharker/pi-oh-my-posh#readme",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "pi": {
+    "extensions": [
+      "./pi-oh-my-posh.ts"
+    ]
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-extension",
+    "pi-coding-agent",
+    "oh-my-posh",
+    "footer",
+    "statusline",
+    "theme",
+    "powerline"
+  ],
+  "scripts": {
+    "test": "node --experimental-strip-types --check pi-oh-my-posh.ts && node -e \"['pi.omp.json','pi-block.snippet.json','package.json'].forEach(f=>JSON.parse(require('fs').readFileSync(f,'utf8')));console.log('smoke ok')\"",
+    "smoke": "npm test",
+    "prepublishOnly": "npm test"
+  },
+  "files": [
+    "pi-oh-my-posh.ts",
+    "pi.omp.json",
+    "pi-block.snippet.json",
+    "install.sh",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  }
+}

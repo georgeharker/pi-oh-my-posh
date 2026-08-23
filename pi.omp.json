@@ -1,0 +1,70 @@
+{
+  "$schema": "https://raw.githubusercontent.com/JanDeDobbeleer/oh-my-posh/main/themes/schema.json",
+  "version": 3,
+  "final_space": false,
+  "blocks": [
+    {
+      "type": "prompt",
+      "alignment": "left",
+      "segments": [
+        {
+          "type": "path",
+          "style": "powerline",
+          "powerline_symbol": "",
+          "background": "#44475a",
+          "foreground": "#f8f8f2",
+          "properties": { "style": "folder" },
+          "template": "  {{ .Path }} "
+        },
+        {
+          "type": "git",
+          "style": "powerline",
+          "powerline_symbol": "",
+          "background": "#50fa7b",
+          "foreground": "#282a36",
+          "background_templates": [
+            "{{ if or (.Working.Changed) (.Staging.Changed) }}#f1fa8c{{ end }}"
+          ],
+          "properties": { "fetch_status": true, "branch_icon": " " },
+          "template": " {{ .HEAD }}{{ if or (.Working.Changed) (.Staging.Changed) }} {{ end }} "
+        },
+        {
+          "type": "text",
+          "style": "powerline",
+          "powerline_symbol": "",
+          "background": "#bd93f9",
+          "foreground": "#282a36",
+          "template": "{{ if .Env.PI_MODEL }}  {{ .Env.PI_MODEL }}{{ if .Env.PI_THINKING }}  {{ .Env.PI_THINKING }}{{ end }} {{ end }}"
+        },
+        {
+          "type": "text",
+          "style": "powerline",
+          "powerline_symbol": "",
+          "background": "#6272a4",
+          "foreground": "#f8f8f2",
+          "foreground_templates": [
+            "{{ if ge (atoi .Env.PI_CTX_PERCENT) 90 }}#ff5555{{ end }}",
+            "{{ if ge (atoi .Env.PI_CTX_PERCENT) 70 }}#ffb86c{{ end }}"
+          ],
+          "template": "{{ if .Env.PI_CTX_GAUGE }} {{ .Env.PI_CTX_GAUGE }} {{ .Env.PI_CTX_PERCENT }}% {{ end }}"
+        },
+        {
+          "type": "text",
+          "style": "powerline",
+          "powerline_symbol": "",
+          "background": "#44475a",
+          "foreground": "#f8f8f2",
+          "template": "{{ if .Env.PI_TOKENS }}  {{ .Env.PI_TOKENS }} {{ end }}"
+        },
+        {
+          "type": "text",
+          "style": "powerline",
+          "powerline_symbol": "",
+          "background": "#282a36",
+          "foreground": "#8be9fd",
+          "template": "{{ if .Env.PI_STATUS }} {{ .Env.PI_STATUS }} {{ end }}"
+        }
+      ]
+    }
+  ]
+}
