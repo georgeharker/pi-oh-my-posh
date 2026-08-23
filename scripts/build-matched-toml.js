@@ -1,9 +1,14 @@
-const fs = require("node:path") && require("fs");
-const THEME = process.env.HOME + "/.config/oh-my-posh/theme.toml";
-const JSONCFG = process.env.HOME + "/Development/ext/pi/pi-oh-my-posh/pi.omp.json";
-const OUT = process.env.HOME + "/Development/ext/pi/pi-oh-my-posh/pi.omp.toml";
+import { readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const theme = fs.readFileSync(THEME, "utf8").split("\n");
+const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
+const THEME = process.env.PI_OMP_THEME || join(homedir(), ".config/oh-my-posh/theme.toml");
+const JSONCFG = join(REPO, "pi.omp.json");
+const OUT = join(REPO, "pi.omp.toml");
+
+const theme = readFileSync(THEME, "utf8").split("\n");
 const line = (a, b) => theme.slice(a - 1, b).join("\n");
 
 const palette = line(7, 15); // [palette] ... grey = '#bcbcbc'
@@ -11,10 +16,21 @@ const pathSeg = line(74, 83); // path powerline segment + properties(style=folde
 const gitSeg = line(85, 103); // git powerline segment + properties
 
 // Reuse the exact powerline separator glyph from the user's path segment.
-const sep = (pathSeg.match(/powerline_symbol\s*=\s*'([^']*)'/) || [])[1] || "";
+// Round style: your prompt's path/git use pointed powerline separators (e0b0), but your
+// diamond segments use round caps (e0b6/e0b4). Match the round look throughout the footer.
+const POINTED = String.fromCodePoint(0xe0b0); // pointed powerline (what path/git ship with)
+const SEP = String.fromCodePoint(0xe0b4); // round right half-circle — the round separator
+const CAP_L = String.fromCodePoint(0xe0b6); // round left cap
+
+// Copy path/git, but swap pointed separators for round and cap the left edge.
+const pathRound = pathSeg
+  .replace(/(\[\[blocks\.segments\]\]\n)/, `$1    leading_diamond = '${CAP_L}'\n`)
+  .split(POINTED)
+  .join(SEP);
+const gitRound = gitSeg.split(POINTED).join(SEP);
 
 // Pull the pi text-segment templates (glyphs intact) from the bundled JSON.
-const j = JSON.parse(fs.readFileSync(JSONCFG, "utf8"));
+const j = JSON.parse(readFileSync(JSONCFG, "utf8"));
 const seg = j.blocks[0].segments;
 const byTemplateHas = (needle) => seg.find((s) => s.type === "text" && s.template.includes(needle));
 const model = byTemplateHas("PI_MODEL").template;
@@ -24,14 +40,15 @@ const status = byTemplateHas("PI_STATUS ").template || byTemplateHas("PI_STATUS"
 
 const q = (s) => `'${s}'`; // TOML literal string; our templates contain no apostrophes
 
-function piSeg(bg, fg, template, fgTemplates) {
+function piSeg(bg, fg, template, fgTemplates, trailing) {
   let t =
     `  [[blocks.segments]]\n` +
     `    type = 'text'\n` +
     `    style = 'powerline'\n` +
-    `    powerline_symbol = ${q(sep)}\n` +
+    `    powerline_symbol = ${q(SEP)}\n` +
     `    background = '${bg}'\n` +
     `    foreground = '${fg}'\n`;
+  if (trailing) t += `    trailing_diamond = ${q(trailing)}\n`;
   if (fgTemplates) {
     t += `    foreground_templates = [${fgTemplates.map(q).join(", ")}]\n`;
   }
@@ -47,16 +64,16 @@ const ctxFg = [
 
 const out =
   `# pi.omp.toml — pi footer matched to your theme.toml (Tokyo Night palette).\n` +
-  `# Generated: palette + path/git copied verbatim from ~/.config/oh-my-posh/theme.toml,\n` +
-  `# pi segments (model / context / tokens / status) added in your palette colors.\n` +
-  `# Point the extension at this file:  export PI_OMP_CONFIG=<this path>\n` +
+  `# Generated: palette + path/git from ~/.config/oh-my-posh/theme.toml, separators\n` +
+  `# rounded (e0b4/e0b6) to match your diamond style; pi segments (model / context /\n` +
+  `# tokens / status) added in your palette colors. Regenerate: node scripts/build-matched-toml.js\n` +
   `version = 3\n` +
   `final_space = false\n\n` +
   palette +
   `\n\n[[blocks]]\n  type = 'prompt'\n  alignment = 'left'\n\n` +
-  pathSeg +
+  pathRound +
   `\n\n` +
-  gitSeg +
+  gitRound +
   `\n\n` +
   piSeg("p:yellow", "p:black", model) +
   `\n` +
@@ -64,8 +81,8 @@ const out =
   `\n` +
   piSeg("p:black", "p:grey", tokens) +
   `\n` +
-  piSeg("p:grey", "p:black", status) +
+  piSeg("p:grey", "p:black", status, undefined, SEP) +
   ``;
 
-fs.writeFileSync(OUT, out);
-console.log("wrote", OUT, "(separator glyph U+" + (sep.codePointAt(0) || 0).toString(16) + ")");
+writeFileSync(OUT, out);
+console.log("wrote", OUT, "(round separators e0b4/e0b6)");
