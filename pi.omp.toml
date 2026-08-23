@@ -20,13 +20,13 @@ final_space = false
   alignment = 'left'
 
   [[blocks.segments]]
-    leading_diamond = ''
     template = '  {{ path .Path .Location }} '
     foreground = 'p:white'
-    powerline_symbol = ''
+    leading_diamond = ''
+    trailing_diamond = ''
     background = 'p:orange'
     type = 'path'
-    style = 'powerline'
+    style = 'diamond'
 
     [blocks.segments.properties]
       style = 'folder'
@@ -63,18 +63,18 @@ final_space = false
     type = 'text'
     style = 'powerline'
     powerline_symbol = ''
+    foreground_templates = ['{{ if ge (atoi .Env.PI_CTX_PERCENT) 90 }}p:red{{ end }}', '{{ if ge (atoi .Env.PI_CTX_PERCENT) 70 }}p:orange{{ end }}']
     background = 'p:blue'
     foreground = 'p:white'
-    foreground_templates = ['{{ if ge (atoi .Env.PI_CTX_PERCENT) 90 }}p:red{{ end }}', '{{ if ge (atoi .Env.PI_CTX_PERCENT) 70 }}p:orange{{ end }}']
     template = '{{ if .Env.PI_CTX_GAUGE }} {{ .Env.PI_CTX_GAUGE }} {{ .Env.PI_CTX_PERCENT }}% {{ end }}'
 
   [[blocks.segments]]
     type = 'text'
-    style = 'powerline'
-    powerline_symbol = ''
+    style = 'diamond'
+    leading_diamond = ''
+    trailing_diamond = ''
     background = 'p:black'
     foreground = 'p:grey'
-    trailing_diamond = ''
     template = '{{ if .Env.PI_TOKENS }}  {{ .Env.PI_TOKENS }} {{ end }}'
 
 
@@ -85,10 +85,9 @@ final_space = false
 
   [[blocks.segments]]
     type = 'text'
-    style = 'powerline'
+    style = 'diamond'
     leading_diamond = ''
     trailing_diamond = ''
-    powerline_symbol = ''
     background = 'p:grey'
     foreground = 'p:black'
     template = '{{ if .Env.PI_STATUS }} {{ .Env.PI_STATUS }} {{ end }}'

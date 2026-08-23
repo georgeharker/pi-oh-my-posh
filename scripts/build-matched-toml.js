@@ -22,12 +22,15 @@ const SEP = String.fromCodePoint(0xe0b0); // '>' pointed powerline separator (yo
 const CAP_L = String.fromCodePoint(0xe0b6); // '(' round left cap
 const CAP_R = String.fromCodePoint(0xe0b4); // ')' round right cap
 
-// Path/git already carry the pointed '>' separator — keep them verbatim; just add the
-// round '(' cap to the first segment (path).
-const pathCapped = pathSeg.replace(
-  /(\[\[blocks\.segments\]\]\n)/,
-  `$1    leading_diamond = '${CAP_L}'\n`,
-);
+// First segment (path) must be style='diamond' for the round '(' cap to render —
+// OMP ignores leading_diamond on powerline segments. Its trailing '>' connects into
+// the powerline chain (git/model/context). git stays verbatim (powerline '>').
+const pathDiamond = pathSeg
+  .replace(/style = 'powerline'/, "style = 'diamond'")
+  .replace(
+    /powerline_symbol = '[^']*'/,
+    `leading_diamond = '${CAP_L}'\n    trailing_diamond = '${SEP}'`,
+  );
 
 // Pull the pi text-segment templates (glyphs intact) from the bundled JSON.
 const j = JSON.parse(readFileSync(JSONCFG, "utf8"));
@@ -40,19 +43,15 @@ const status = byTemplateHas("PI_STATUS ").template || byTemplateHas("PI_STATUS"
 
 const q = (s) => `'${s}'`; // TOML literal string; our templates contain no apostrophes
 
-function piSeg(bg, fg, template, fgTemplates, trailing) {
-  let t =
-    `  [[blocks.segments]]\n` +
-    `    type = 'text'\n` +
-    `    style = 'powerline'\n` +
-    `    powerline_symbol = ${q(SEP)}\n` +
-    `    background = '${bg}'\n` +
-    `    foreground = '${fg}'\n`;
-  if (trailing) t += `    trailing_diamond = ${q(trailing)}\n`;
-  if (fgTemplates) {
-    t += `    foreground_templates = [${fgTemplates.map(q).join(", ")}]\n`;
-  }
-  t += `    template = ${q(template)}\n`;
+// style defaults to powerline ('>' separators). Pass style='diamond' with ld/td for a
+// segment that must render round caps (the row ends) — powerline ignores diamonds.
+function textSeg({ bg, fg, template, fgTemplates, style = "powerline", ld, td }) {
+  let t = `  [[blocks.segments]]\n    type = 'text'\n    style = '${style}'\n`;
+  if (ld) t += `    leading_diamond = ${q(ld)}\n`;
+  if (td) t += `    trailing_diamond = ${q(td)}\n`;
+  if (style === "powerline") t += `    powerline_symbol = ${q(SEP)}\n`;
+  if (fgTemplates) t += `    foreground_templates = [${fgTemplates.map(q).join(", ")}]\n`;
+  t += `    background = '${bg}'\n    foreground = '${fg}'\n    template = ${q(template)}\n`;
   return t;
 }
 
@@ -71,28 +70,20 @@ const out =
   `final_space = false\n\n` +
   palette +
   `\n\n[[blocks]]\n  type = 'prompt'\n  alignment = 'left'\n\n` +
-  pathCapped +
+  pathDiamond +
   `\n\n` +
   gitSeg +
   `\n\n` +
-  piSeg("p:yellow", "p:black", model) +
+  textSeg({ bg: "p:yellow", fg: "p:black", template: model }) +
   `\n` +
-  piSeg("p:blue", "p:white", ctx, ctxFg) +
+  textSeg({ bg: "p:blue", fg: "p:white", template: ctx, fgTemplates: ctxFg }) +
   `\n` +
-  piSeg("p:black", "p:grey", tokens, undefined, CAP_R) + // last on row 1 → round ')' end cap
-  // Row 2: other-extension status chips (remote-pi, etc.) on their own line via a
-  // newline block. When PI_STATUS is empty the segment (and the whole line) vanishes,
-  // and the footer collapses back to a single row.
+  // last on row 1: diamond so the round ')' cap renders; '>' leads in from the chain.
+  textSeg({ bg: "p:black", fg: "p:grey", template: tokens, style: "diamond", ld: SEP, td: CAP_R }) +
+  // Row 2: status chips as a rounded ( ) pill on their own line. When PI_STATUS is empty
+  // the segment (and the whole line) vanishes, collapsing the footer back to one row.
   `\n\n[[blocks]]\n  type = 'prompt'\n  alignment = 'left'\n  newline = true\n\n` +
-  `  [[blocks.segments]]\n` +
-  `    type = 'text'\n` +
-  `    style = 'powerline'\n` +
-  `    leading_diamond = ${q(CAP_L)}\n` +
-  `    trailing_diamond = ${q(CAP_R)}\n` +
-  `    powerline_symbol = ${q(SEP)}\n` +
-  `    background = 'p:grey'\n` +
-  `    foreground = 'p:black'\n` +
-  `    template = ${q(status)}\n`;
+  textSeg({ bg: "p:grey", fg: "p:black", template: status, style: "diamond", ld: CAP_L, td: CAP_R });
 
 writeFileSync(OUT, out);
 console.log("wrote", OUT, "(pointed > sep, round ( ) caps)");
