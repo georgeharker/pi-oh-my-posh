@@ -1,6 +1,6 @@
 {
   "name": "@geohar/pi-oh-my-posh",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Render pi coding agent's footer with Oh My Posh — reuse your shell prompt's theme (powerline, palette, glyphs) plus pi context/model/tokens and other extensions' status chips.",
   "license": "MIT",
   "author": "George Harker <george@georgeharker.com>",
