@@ -15,19 +15,19 @@ const palette = line(7, 15); // [palette] ... grey = '#bcbcbc'
 const pathSeg = line(74, 83); // path powerline segment + properties(style=folder)
 const gitSeg = line(85, 103); // git powerline segment + properties
 
-// Reuse the exact powerline separator glyph from the user's path segment.
-// Round style: your prompt's path/git use pointed powerline separators (e0b0), but your
-// diamond segments use round caps (e0b6/e0b4). Match the round look throughout the footer.
-const POINTED = String.fromCodePoint(0xe0b0); // pointed powerline (what path/git ship with)
-const SEP = String.fromCodePoint(0xe0b4); // round right half-circle — the round separator
-const CAP_L = String.fromCodePoint(0xe0b6); // round left cap
+// Match theme.toml's style exactly: round '(' cap on the LEFT end (e0b6), pointed '>'
+// separators BETWEEN segments (e0b0), round ')' cap on the RIGHT end (e0b4). Only the
+// ends are round — the inner separators stay pointed.
+const SEP = String.fromCodePoint(0xe0b0); // '>' pointed powerline separator (your inner sep)
+const CAP_L = String.fromCodePoint(0xe0b6); // '(' round left cap
+const CAP_R = String.fromCodePoint(0xe0b4); // ')' round right cap
 
-// Copy path/git, but swap pointed separators for round and cap the left edge.
-const pathRound = pathSeg
-  .replace(/(\[\[blocks\.segments\]\]\n)/, `$1    leading_diamond = '${CAP_L}'\n`)
-  .split(POINTED)
-  .join(SEP);
-const gitRound = gitSeg.split(POINTED).join(SEP);
+// Path/git already carry the pointed '>' separator — keep them verbatim; just add the
+// round '(' cap to the first segment (path).
+const pathCapped = pathSeg.replace(
+  /(\[\[blocks\.segments\]\]\n)/,
+  `$1    leading_diamond = '${CAP_L}'\n`,
+);
 
 // Pull the pi text-segment templates (glyphs intact) from the bundled JSON.
 const j = JSON.parse(readFileSync(JSONCFG, "utf8"));
@@ -65,21 +65,21 @@ const ctxFg = [
 const out =
   `# pi.omp.toml — pi footer matched to your theme.toml (Tokyo Night palette).\n` +
   `# Generated: palette + path/git from ~/.config/oh-my-posh/theme.toml, separators\n` +
-  `# rounded (e0b4/e0b6) to match your diamond style; pi segments (model / context /\n` +
+  `# pointed > separators with round ( ) end caps (matching theme.toml); pi segments (model / context /\n` +
   `# tokens) row 1; status chips on row 2 (newline block); palette colors. Regenerate: node scripts/build-matched-toml.js\n` +
   `version = 3\n` +
   `final_space = false\n\n` +
   palette +
   `\n\n[[blocks]]\n  type = 'prompt'\n  alignment = 'left'\n\n` +
-  pathRound +
+  pathCapped +
   `\n\n` +
-  gitRound +
+  gitSeg +
   `\n\n` +
   piSeg("p:yellow", "p:black", model) +
   `\n` +
   piSeg("p:blue", "p:white", ctx, ctxFg) +
   `\n` +
-  piSeg("p:black", "p:grey", tokens, undefined, SEP) + // last on row 1 → round end cap
+  piSeg("p:black", "p:grey", tokens, undefined, CAP_R) + // last on row 1 → round ')' end cap
   // Row 2: other-extension status chips (remote-pi, etc.) on their own line via a
   // newline block. When PI_STATUS is empty the segment (and the whole line) vanishes,
   // and the footer collapses back to a single row.
@@ -88,11 +88,11 @@ const out =
   `    type = 'text'\n` +
   `    style = 'powerline'\n` +
   `    leading_diamond = ${q(CAP_L)}\n` +
-  `    trailing_diamond = ${q(SEP)}\n` +
+  `    trailing_diamond = ${q(CAP_R)}\n` +
   `    powerline_symbol = ${q(SEP)}\n` +
   `    background = 'p:grey'\n` +
   `    foreground = 'p:black'\n` +
   `    template = ${q(status)}\n`;
 
 writeFileSync(OUT, out);
-console.log("wrote", OUT, "(round separators e0b4/e0b6)");
+console.log("wrote", OUT, "(pointed > sep, round ( ) caps)");
