@@ -1,7 +1,7 @@
 # pi.omp.toml — pi footer matched to your theme.toml (Tokyo Night palette).
 # Generated: palette + path/git from ~/.config/oh-my-posh/theme.toml, separators
 # rounded (e0b4/e0b6) to match your diamond style; pi segments (model / context /
-# tokens / status) added in your palette colors. Regenerate: node scripts/build-matched-toml.js
+# tokens) row 1; status chips on row 2 (newline block); palette colors. Regenerate: node scripts/build-matched-toml.js
 version = 3
 final_space = false
 
@@ -74,13 +74,21 @@ final_space = false
     powerline_symbol = ''
     background = 'p:black'
     foreground = 'p:grey'
+    trailing_diamond = ''
     template = '{{ if .Env.PI_TOKENS }}  {{ .Env.PI_TOKENS }} {{ end }}'
+
+
+[[blocks]]
+  type = 'prompt'
+  alignment = 'left'
+  newline = true
 
   [[blocks.segments]]
     type = 'text'
     style = 'powerline'
+    leading_diamond = ''
+    trailing_diamond = ''
     powerline_symbol = ''
     background = 'p:grey'
     foreground = 'p:black'
-    trailing_diamond = ''
     template = '{{ if .Env.PI_STATUS }} {{ .Env.PI_STATUS }} {{ end }}'

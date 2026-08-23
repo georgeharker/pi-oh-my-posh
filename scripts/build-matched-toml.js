@@ -66,7 +66,7 @@ const out =
   `# pi.omp.toml — pi footer matched to your theme.toml (Tokyo Night palette).\n` +
   `# Generated: palette + path/git from ~/.config/oh-my-posh/theme.toml, separators\n` +
   `# rounded (e0b4/e0b6) to match your diamond style; pi segments (model / context /\n` +
-  `# tokens / status) added in your palette colors. Regenerate: node scripts/build-matched-toml.js\n` +
+  `# tokens) row 1; status chips on row 2 (newline block); palette colors. Regenerate: node scripts/build-matched-toml.js\n` +
   `version = 3\n` +
   `final_space = false\n\n` +
   palette +
@@ -79,10 +79,20 @@ const out =
   `\n` +
   piSeg("p:blue", "p:white", ctx, ctxFg) +
   `\n` +
-  piSeg("p:black", "p:grey", tokens) +
-  `\n` +
-  piSeg("p:grey", "p:black", status, undefined, SEP) +
-  ``;
+  piSeg("p:black", "p:grey", tokens, undefined, SEP) + // last on row 1 → round end cap
+  // Row 2: other-extension status chips (remote-pi, etc.) on their own line via a
+  // newline block. When PI_STATUS is empty the segment (and the whole line) vanishes,
+  // and the footer collapses back to a single row.
+  `\n\n[[blocks]]\n  type = 'prompt'\n  alignment = 'left'\n  newline = true\n\n` +
+  `  [[blocks.segments]]\n` +
+  `    type = 'text'\n` +
+  `    style = 'powerline'\n` +
+  `    leading_diamond = ${q(CAP_L)}\n` +
+  `    trailing_diamond = ${q(SEP)}\n` +
+  `    powerline_symbol = ${q(SEP)}\n` +
+  `    background = 'p:grey'\n` +
+  `    foreground = 'p:black'\n` +
+  `    template = ${q(status)}\n`;
 
 writeFileSync(OUT, out);
 console.log("wrote", OUT, "(round separators e0b4/e0b6)");

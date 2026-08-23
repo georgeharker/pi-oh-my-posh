@@ -124,7 +124,7 @@ verbatim (same colors, separators, folder hyperlink, upstream URL, branch status
 pi segments are added in the same palette (`p:yellow` model, `p:blue` context with
 `p:orange`/`p:red` thresholds, `p:black` tokens, `p:grey` status).
 
-It's picked up automatically (step 3 above) — no env needed. To keep it with your dotfiles
+Row 1 carries path/git + model/context/tokens; other-extension status chips (remote-pi) sit on a second row that collapses away when there are none. It's picked up automatically (step 3 above) — no env needed. To keep it with your dotfiles
 instead, copy it to `~/.config/oh-my-posh/pi.toml` and it wins (step 2). Regenerate it after
 changing your theme's palette:
 
