@@ -252,7 +252,60 @@ function statusEnvKey(key: string): string {
   return "PI_STATUS_" + key.toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_|_$/g, "");
 }
 
-/** Read published extension statuses (ANSI stripped), in insertion order. */
+// Some extensions publish a structured (JSON) status meant for a footer that understands
+// their protocol, not human-readable text. pi-lens publishes
+//   {"prettier":"clean","linters":"issues","lsp":"clean","tsc":"skipped"}
+// which we decode into a compact chip:  <magnifier> p l s⊘ t
+// (CheckStatus one of pending|running|clean|issues|error|skipped, per category p/l/s/t).
+const LENS_ICON: Record<string, string> = {
+  clean: "\uf00c", // nf-fa-check
+  issues: "\uf071", // nf-fa-exclamation-triangle
+  error: "\uf00d", // nf-fa-times
+  skipped: "\uf068", // nf-fa-minus
+  running: "\uf141", // nf-fa-ellipsis-h
+  pending: "\uf10c", // nf-fa-circle-o
+};
+const LENS_CATS: Array<[string, string]> = [
+  ["p", "prettier"],
+  ["l", "linters"],
+  ["s", "lsp"],
+  ["t", "tsc"],
+];
+// Optional descriptor before the lens icons. PI_OMP_LENS_LABEL=1 -> "lens", or any
+// custom word; empty (default) shows just the magnifier + icons.
+const LENS_LABEL = (() => {
+  const v = (process.env.PI_OMP_LENS_LABEL ?? "").trim();
+  if (!v) return "";
+  return /^(1|true|yes|on)$/i.test(v) ? "lens " : v + " ";
+})();
+
+function decodePiLens(text: string): string | null {
+  let o: Record<string, unknown>;
+  try {
+    o = JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  if (!o || typeof o !== "object") return null;
+  const present = LENS_CATS.filter(([, key]) => key in o);
+  if (!present.length) return null;
+  // Hide until there's real info — all pending/skipped at session start is just noise.
+  const real = present.some(([, key]) => o[key] !== "pending" && o[key] !== "skipped");
+  if (!real) return "";
+  const parts = present.map(([lbl, key]) => `${lbl}${LENS_ICON[String(o[key])] ?? "\uf128"}`);
+  return `\uf002 ${LENS_LABEL}${parts.join(" ")}`; // nf-fa-search + p… l… s… t…
+}
+
+/** Turn a structured status value into a chip; passthrough for plain text. */
+function decodeStatus(key: string, text: string): string {
+  if (key === "pi-lens" || key.endsWith(":pi-lens")) {
+    const chip = decodePiLens(text);
+    if (chip !== null) return chip; // "" hides it (all-pending); a chip replaces the JSON
+  }
+  return text;
+}
+
+/** Read published extension statuses (decoded, ANSI stripped, icon-remapped). */
 function readStatuses(): Array<[string, string]> {
   let map: ReadonlyMap<string, string> | undefined;
   try {
@@ -263,7 +316,8 @@ function readStatuses(): Array<[string, string]> {
   if (!map) return [];
   const out: Array<[string, string]> = [];
   for (const [k, v] of map) {
-    const text = remapIcons(stripAnsi(String(v ?? ""))).trim();
+    const decoded = decodeStatus(k, stripAnsi(String(v ?? "")));
+    const text = remapIcons(decoded).trim();
     if (text) out.push([k, text]);
   }
   return out;

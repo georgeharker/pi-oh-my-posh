@@ -62,6 +62,16 @@ read that same map and re-expose it:
 ANSI in status text is stripped so your theme controls the color. The footer refreshes
 automatically when a status changes.
 
+**Structured (JSON) statuses — pi-lens.** Some extensions publish a JSON payload as their
+status, meant for a footer that understands their protocol. [pi-lens](https://github.com/harms-haus/pi-lens)
+publishes `{"prettier":"clean","linters":"issues","lsp":"clean","tsc":"skipped"}`. Raw,
+that's an ugly blob; this extension decodes the `pi-lens` key into a compact chip —
+` p l s t` (magnifier + prettier/linters/lsp/tsc, each a state glyph:
+ clean ·  issues ·  error ·  skipped ·  pending ·  running). It stays hidden until a
+check has actually run (all-pending is suppressed). Add an optional label with
+`PI_OMP_LENS_LABEL=1` (→ `lens`) or a custom word (`PI_OMP_LENS_LABEL=code`). Any other
+key whose value isn't recognized JSON passes through unchanged.
+
 **Emoji → Nerd Font.** Publishers embed emoji directly (remote-pi uses 📡 🟢 🟡 📱). By
 default those are remapped to monochrome Nerd Font glyphs so the footer stays consistent
 with a powerline theme — state that emoji encode via *color* (🟢 on / 🟡 waiting) is kept
