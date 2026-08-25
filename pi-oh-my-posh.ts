@@ -48,7 +48,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 // pi-tui ships with the pi runtime; its reusable settings list powers the /oh-my-posh editor.
-// The slice we use is declared in pi-tui.d.ts so this type-checks without a build-time dep.
+// Declared as a peer dependency (a devDependency provides types for typecheck/CI).
 import {
   SettingsList,
   type SettingItem,

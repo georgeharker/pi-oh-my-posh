@@ -53,6 +53,7 @@
     "@earendil-works/pi-tui": ">=0.79"
   },
   "devDependencies": {
+    "@earendil-works/pi-tui": "^0.79.10",
     "@types/node": "^22.20.1"
   }
 }
