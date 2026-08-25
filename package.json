@@ -1,6 +1,6 @@
 {
   "name": "@geohar/pi-oh-my-posh",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Render pi coding agent's footer with Oh My Posh — reuse your shell prompt's theme (powerline, palette, glyphs) plus pi context/model/tokens and other extensions' status chips.",
   "license": "MIT",
   "author": "George Harker <george@georgeharker.com>",
@@ -34,8 +34,9 @@
   ],
   "scripts": {
     "test": "node --experimental-strip-types --check pi-oh-my-posh.ts && node -e \"['pi.omp.json','pi-block.snippet.json','package.json'].forEach(f=>JSON.parse(require('fs').readFileSync(f,'utf8')));console.log('smoke ok')\"",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "smoke": "npm test",
-    "prepublishOnly": "npm test"
+    "prepublishOnly": "npm run typecheck && npm test"
   },
   "files": [
     "pi-oh-my-posh.ts",
@@ -47,5 +48,11 @@
   ],
   "engines": {
     "node": ">=20"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-tui": ">=0.79"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1"
   }
 }

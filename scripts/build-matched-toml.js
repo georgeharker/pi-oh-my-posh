@@ -4,7 +4,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
-const THEME = process.env.PI_OMP_THEME || join(homedir(), ".config/oh-my-posh/theme.toml");
+const THEME =
+  process.env.PI_OMP_THEME || join(homedir(), ".config/oh-my-posh/theme.toml");
 const JSONCFG = join(REPO, "pi.omp.json");
 const OUT = join(REPO, "pi.omp.toml");
 
@@ -33,24 +34,40 @@ const pathDiamond = pathSeg
   );
 
 // Pull the pi text-segment templates (glyphs intact) from the bundled JSON.
-const j = JSON.parse(readFileSync(JSONCFG, "utf8"));
+let j;
+try {
+  j = JSON.parse(readFileSync(JSONCFG, "utf8"));
+} catch (e) {
+  throw new Error(`build-matched-toml: cannot read ${JSONCFG}: ${e.message}`);
+}
 const seg = j.blocks[0].segments;
-const byTemplateHas = (needle) => seg.find((s) => s.type === "text" && s.template.includes(needle));
+const byTemplateHas = (needle) =>
+  seg.find((s) => s.type === "text" && s.template.includes(needle));
 const model = byTemplateHas("PI_MODEL").template;
 const ctx = byTemplateHas("PI_CTX_GAUGE").template;
 const tokens = byTemplateHas("PI_TOKENS").template;
-const status = byTemplateHas("PI_STATUS ").template || byTemplateHas("PI_STATUS").template;
+const status =
+  byTemplateHas("PI_STATUS ").template || byTemplateHas("PI_STATUS").template;
 
 const q = (s) => `'${s}'`; // TOML literal string; our templates contain no apostrophes
 
 // style defaults to powerline ('>' separators). Pass style='diamond' with ld/td for a
 // segment that must render round caps (the row ends) — powerline ignores diamonds.
-function textSeg({ bg, fg, template, fgTemplates, style = "powerline", ld, td }) {
+function textSeg({
+  bg,
+  fg,
+  template,
+  fgTemplates,
+  style = "powerline",
+  ld,
+  td,
+}) {
   let t = `  [[blocks.segments]]\n    type = 'text'\n    style = '${style}'\n`;
   if (ld) t += `    leading_diamond = ${q(ld)}\n`;
   if (td) t += `    trailing_diamond = ${q(td)}\n`;
   if (style === "powerline") t += `    powerline_symbol = ${q(SEP)}\n`;
-  if (fgTemplates) t += `    foreground_templates = [${fgTemplates.map(q).join(", ")}]\n`;
+  if (fgTemplates)
+    t += `    foreground_templates = [${fgTemplates.map(q).join(", ")}]\n`;
   t += `    background = '${bg}'\n    foreground = '${fg}'\n    template = ${q(template)}\n`;
   return t;
 }
@@ -79,11 +96,25 @@ const out =
   textSeg({ bg: "p:blue", fg: "p:white", template: ctx, fgTemplates: ctxFg }) +
   `\n` +
   // last on row 1: diamond so the round ')' cap renders; '>' leads in from the chain.
-  textSeg({ bg: "p:black", fg: "p:grey", template: tokens, style: "diamond", ld: SEP, td: CAP_R }) +
+  textSeg({
+    bg: "p:black",
+    fg: "p:grey",
+    template: tokens,
+    style: "diamond",
+    ld: SEP,
+    td: CAP_R,
+  }) +
   // Row 2: status chips as a rounded ( ) pill on their own line. When PI_STATUS is empty
   // the segment (and the whole line) vanishes, collapsing the footer back to one row.
   `\n\n[[blocks]]\n  type = 'prompt'\n  alignment = 'left'\n  newline = true\n\n` +
-  textSeg({ bg: "p:grey", fg: "p:black", template: status, style: "diamond", ld: CAP_L, td: CAP_R });
+  textSeg({
+    bg: "p:grey",
+    fg: "p:black",
+    template: status,
+    style: "diamond",
+    ld: CAP_L,
+    td: CAP_R,
+  });
 
 writeFileSync(OUT, out);
 console.log("wrote", OUT, "(pointed > sep, round ( ) caps)");

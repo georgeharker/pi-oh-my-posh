@@ -26,7 +26,15 @@ Native `path` / `git` segments in the config render authentic Oh My Posh output 
 ```
 
 Requires `oh-my-posh` on PATH (`brew install oh-my-posh`, etc.). Start pi — the footer
-renders through Oh My Posh. `/oh-my-posh` toggles it for the session.
+renders through Oh My Posh.
+
+### Commands
+
+- `/oh-my-posh` — open the **settings editor**: an interactive list to toggle the footer on/off,
+  show/hide each live status chip (writes `statusToggles`), and set the pi-lens label / icon
+  mode. Changes persist to `oh-my-posh.json`; footer and chip toggles apply live, the rest note
+  a reload. (With no interactive TUI it falls back to a plain footer on/off toggle.) Each live
+  chip row's description also shows its `.Env.PI_STATUS_<KEY>` template var for theme authoring.
 
 ## The `.Env.PI_*` variables it exports
 
@@ -36,7 +44,7 @@ renders through Oh My Posh. `/oh-my-posh` toggles it for the session.
 | `PI_PROVIDER`    | provider id (when available)                        |
 | `PI_THINKING`    | thinking level (omitted when `off`)                 |
 | `PI_CTX_PERCENT` | context-window used, integer percent                |
-| `PI_CTX_GAUGE`   | precomputed `▰▱` bar (width = `PI_OMP_GAUGE_WIDTH`)  |
+| `PI_CTX_GAUGE`   | precomputed `▰▱` bar (width = `gaugeWidth` setting) |
 | `PI_TOKENS`      | current context tokens, humanized (`1.5K`, `2.3M`)  |
 | `PI_CTX_WINDOW`  | context-window size, humanized                      |
 | `PI_STATUS`      | selected statuses from other extensions, joined     |
@@ -53,11 +61,14 @@ read that same map and re-expose it:
   it in the last segment). remote-pi's `📡 backend (1)  🟢 relay  📱 iphone` shows up here.
 - **Individual:** each publisher also gets `.Env.PI_STATUS_<KEY>`, so you can place them in
   separate segments — e.g. `{{ .Env.PI_STATUS_REMOTE_PI_RELAY }}` in its own pill.
-- **Select which:** `PI_OMP_STATUS` = `all` (default) · `none` · or a comma list of exact
-  keys in the order you want, e.g. `PI_OMP_STATUS="remote-pi:relay,remote-pi:session"`.
-  `PI_OMP_STATUS_SEP` sets the join separator (default two spaces).
-- **Discover keys:** run `/oh-my-posh-status` in pi — it lists the live status keys and the
-  `.Env.` var each maps to.
+- **Select which:** the `status` setting = `"all"` (default) · `"none"` · or a comma list /
+  array of exact keys in the order you want, e.g. `"status": "remote-pi:relay,remote-pi:session"`.
+  `statusSeparator` sets the join separator (default two spaces).
+- **Show/hide per key:** `statusToggles`, e.g. `{ "*": true, "pi-lens": false }` (`"*"` is the
+  default for unlisted keys) — fully drops a chip, mirroring zentui's toggles.
+- **Discover keys:** open `/oh-my-posh` — each live chip row shows its `.Env.PI_STATUS_<KEY>`
+  template var. (The var name is deterministic: `PI_STATUS_` + the key uppercased with each
+  run of non-alphanumerics collapsed to `_`.)
 
 ANSI in status text is stripped so your theme controls the color. The footer refreshes
 automatically when a status changes.
@@ -66,10 +77,10 @@ automatically when a status changes.
 
 - **Unscoped `pi-lens`** (v4+, ast-grep/LSP) publishes key `pi-lens-lsp` with human text
   (`LSP Inactive`, `sym · sym`). It's decorated into a recognizable magnifier chip —
-  ` LSP Inactive` — optionally prefixed with a label (`lensLabel`).
+  `LSP Inactive` — optionally prefixed with a label (`lensLabel`).
 - **`@harms-haus/pi-lens`** (prettier/linters/tsc) publishes key `pi-lens` as JSON
   (`{"prettier":"clean",...}`). Raw that's an ugly blob; it's decoded into
-  ` p l s t` (each a state glyph:  clean ·  issues ·  error ·  skipped ·
+  `p l s t` (each a state glyph:  clean ·  issues ·  error ·  skipped ·
    pending ·  running), hidden until a check has run.
 
 Set the label with `lensLabel` in the config (`true` → `lens`, or a custom word). Any
@@ -80,31 +91,36 @@ default those are remapped to monochrome Nerd Font glyphs so the footer stays co
 with a powerline theme — state that emoji encode via *color* (🟢 on / 🟡 waiting) is kept
 via glyph *shape* (filled  vs hollow  circle), since a themed segment paints one color.
 
-| Var | Meaning |
-|-----|---------|
-| `PI_OMP_ICONS=none` | keep raw emoji, no remap |
-| `PI_OMP_ICONS="📡=,🟢="` | override/add mappings (merged over the defaults) |
+| `icons` setting | Meaning |
+| ----- | --------- |
+| `"none"` | keep raw emoji, no remap |
+| `{ "📡": "", "🟢": "" }` | override/add mappings (merged over the defaults) |
 
 Defaults: `📡→` (wifi) `🟢→` `🔴→` (filled) `🟡→` `⚪→` (hollow) `📱→` (mobile)
 `🔌→` (plug) `⚡→` (bolt). Edit `DEFAULT_ICONS` in the extension to change the built-ins.
 
 ## Configuration
 
-Settings live in a JSON file in your pi config dir — **no env vars needed**:
+Settings live in a JSON file in your pi config dir — **no env vars needed**. The first
+file to define a key wins, checked in this order (the `extensions/` subdir over the
+legacy root path, and project-local over global):
 
-- `$PI_CODING_AGENT_DIR/oh-my-posh.json` (default `~/.pi/agent/oh-my-posh.json`), and
-- `./.pi/oh-my-posh.json` (project-local; overrides the global one).
+- `./.pi/extensions/oh-my-posh.json` (project-local; **preferred**),
+- `./.pi/oh-my-posh.json` (legacy project-local),
+- `$PI_CODING_AGENT_DIR/extensions/oh-my-posh.json` (global; **preferred**),
+- `$PI_CODING_AGENT_DIR/oh-my-posh.json` (legacy global; default `~/.pi/agent/…`).
 
 Every field is optional (see [`oh-my-posh.example.json`](./oh-my-posh.example.json)):
 
 | Field | Default | Purpose |
-|-------|---------|---------|
+| ------- | --------- | --------- |
 | `config` | auto (see below) | omp theme path (`~` ok); omit to auto-detect |
 | `bin` | `oh-my-posh` | Oh My Posh binary |
 | `prompt` | `primary` | which OMP prompt to print |
 | `gaugeWidth` | `10` | cells in the `▰▱` gauge |
 | `gaugeMarked` / `gaugeUnmarked` | `▰` / `▱` | gauge cell glyphs |
-| `status` | `"all"` | `"all"` · `"none"` · `"k1,k2"` · `["k1","k2"]` — which status chips |
+| `status` | `"all"` | `"all"` · `"none"` · `"k1,k2"` · `["k1","k2"]` — which chips feed the joined `PI_STATUS` |
+| `statusToggles` | `{}` | per-key show/hide, e.g. `{ "*": true, "pi-lens": false }`; `"*"` is the default for unlisted keys |
 | `statusSeparator` | `"  "` | join between chips |
 | `icons` | `"default"` | `"default"` · `"none"` · `{ "📡": "" }` — emoji→glyph remap |
 | `lensLabel` | `false` | `false` · `true` (→ `lens`) · `"word"` — pi-lens chip label |
@@ -115,18 +131,35 @@ Example (remote-pi remap on, pi-lens chip labeled):
 { "icons": "default", "lensLabel": true }
 ```
 
-### Env overrides
+### Using it with a host TUI (zentui, etc.)
 
-Any `PI_OMP_*` env var still wins over the file, for one-off overrides:
-`PI_OMP_CONFIG`, `PI_OMP_BIN`, `PI_OMP_PROMPT`, `PI_OMP_GAUGE_WIDTH`,
-`PI_OMP_GAUGE_MARKED`/`PI_OMP_GAUGE_UNMARKED`, `PI_OMP_STATUS`, `PI_OMP_STATUS_SEP`,
-`PI_OMP_ICONS`, `PI_OMP_LENS_LABEL`.
+Oh My Posh **owns pi's footer** and draws the whole thing — model, context, git, tokens, and
+the other-extension status chips (with the emoji→glyph remap). It grabs the single footer slot
+with a deferred double-assert, so it wins even against a full-TUI extension that installs its
+own footer on startup.
 
-### Config resolution (no env needed)
+For that to be stable alongside **zentui**, set zentui's footer to **`native`**
+(`components.footer.style: "native"`). In native mode zentui never touches the footer slot, so
+Oh My Posh owns it uncontested while zentui keeps its editor, user-message, working-line and
+selector styling. (zentui's `starship` footer would fight for the slot and re-assert on
+`/zentui` changes.)
+
+**Status presence.** Because native mode also hides zentui's own extension-status controls,
+Oh My Posh keeps its **own** per-key toggles — `statusToggles` — mirroring what zentui offers:
+
+```json
+{ "statusToggles": { "*": true, "pi-lens": false } }
+```
+
+A key's own value wins; `"*"` is the default for unlisted keys; omit it and every chip shows.
+This governs which `ctx.ui.setStatus(...)` chips Oh My Posh renders whether or not zentui is
+installed — so it works standalone too. (Restart to re-read after editing.)
+
+### Config resolution
 
 The config is auto-detected, first match wins:
 
-1. `PI_OMP_CONFIG` if set (explicit override);
+1. the `config` setting if set (explicit override, `~`-expanded);
 2. a `pi.toml` / `pi.omp.toml` / `pi.json` / `pi.omp.json` / `pi.yaml` / `pi.omp.yaml` in
    your Oh My Posh config dir (`$XDG_CONFIG_HOME/oh-my-posh`, `~/.config/oh-my-posh`, or the
    dir of `$POSH_THEMES_PATH`) — drop a `pi.toml` next to your `theme.toml` and it's used;
@@ -142,10 +175,10 @@ cannot auto-merge with the theme that drives your shell. Two modes instead:
   palette. Separate file, hand-matched.
 - **Compose into your own theme.** Copy the three segments from `pi-block.snippet.json`
   into a block in *your* `.omp.json` (keep your colors/separators), then point the
-  extension at it:
+  extension at it via the `config` setting:
 
-  ```sh
-  export PI_OMP_CONFIG="$HOME/mytheme.omp.json"
+  ```json
+  { "config": "~/mytheme.omp.json" }
   ```
 
   One file, your palette + pi data. Each pi segment self-hides when its data is absent.

@@ -26,14 +26,15 @@
  * `oh-my-posh print --config` loads ONE whole theme; OMP has no include/overlay, so this can
  * NOT auto-merge with the theme that drives your shell. Two supported modes instead:
  *   - Standalone: uses the bundled `pi.omp.json` (default).
- *   - Compose into your own theme: set PI_OMP_CONFIG=~/your.omp.json and paste the segments
+ *   - Compose into your own theme: set "config" to ~/your.omp.json and paste the segments
  *     from `pi-block.snippet.json` into it. One file, your palette + pi data.
  *
- * CONFIG (env)
- *   PI_OMP_CONFIG      path to the .omp.json to render (default: bundled pi.omp.json)
- *   PI_OMP_BIN         oh-my-posh binary (default: "oh-my-posh")
- *   PI_OMP_GAUGE_WIDTH cells in the ▰▱ context gauge (default: 10)
- *   PI_OMP_PROMPT      which OMP prompt to print: primary|right|... (default: "primary")
+ * CONFIG
+ *   All settings live in oh-my-posh.json (see the settings block below); there are no env
+ *   overrides. Key ones: "config" (theme path), "bin", "prompt", "gaugeWidth", and
+ *   "statusToggles" (per-key show/hide for the extension-status chips). OMP owns pi's footer
+ *   and draws the whole thing; with zentui, set its footer.style to "native" so it yields the
+ *   slot (native hides zentui's own status controls, which is why we keep statusToggles here).
  *
  * Commands:  /oh-my-posh  toggles the footer on/off for the session.
  *
@@ -42,10 +43,17 @@
  */
 
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+// pi-tui ships with the pi runtime; its reusable settings list powers the /oh-my-posh editor.
+// The slice we use is declared in pi-tui.d.ts so this type-checks without a build-time dep.
+import {
+  SettingsList,
+  type SettingItem,
+  type SettingsListTheme,
+} from "@earendil-works/pi-tui";
 
 // ---- minimal local typings of the bits of the pi API we touch ----------------
 
@@ -80,12 +88,33 @@ interface Tui {
   requestRender?(): void;
 }
 
+interface OverlayComponent {
+  render(width: number): string[];
+  handleInput?(data: string): void;
+  invalidate(): void;
+}
+
 interface UiContext {
   setFooter(
-    factory: ((tui: Tui, theme: unknown, footerData: FooterDataProvider) => FooterComponent) | undefined,
+    factory:
+      | ((
+          tui: Tui,
+          theme: unknown,
+          footerData: FooterDataProvider,
+        ) => FooterComponent)
+      | undefined,
   ): void;
   setStatus?(key: string, text: string | undefined): void;
   notify?(text: string, level?: string): void;
+  /** Push an interactive overlay; resolves when the component calls `done`. */
+  custom?<T>(
+    factory: (
+      tui: Tui,
+      theme: unknown,
+      keybindings: unknown,
+      done: (value: T) => void,
+    ) => OverlayComponent,
+  ): Promise<T>;
 }
 
 interface Ctx {
@@ -93,6 +122,7 @@ interface Ctx {
   model?: PiModel;
   thinkingLevel?: ThinkingLevel;
   getContextUsage?(): ContextUsage | undefined;
+  hasUI?: boolean;
   ui: UiContext;
 }
 
@@ -100,17 +130,23 @@ interface PiExtensionApi {
   on(event: string, handler: (event: unknown, ctx: Ctx) => void): void;
   registerCommand(
     name: string,
-    options: { description?: string; handler: (args: string, ctx: Ctx) => void | Promise<void> },
+    options: {
+      description?: string;
+      handler: (args: string, ctx: Ctx) => void | Promise<void>;
+    },
   ): void;
 }
 
 // ---- configuration -----------------------------------------------------------
 //
-// Settings live in a JSON file in the pi config dir — no env needed:
-//   $PI_CODING_AGENT_DIR/oh-my-posh.json   (default ~/.pi/agent/oh-my-posh.json)
-//   ./.pi/oh-my-posh.json                  (project-local; overrides the global one)
-// Every field is optional. See oh-my-posh.example.json. A matching PI_OMP_* env var
-// still wins over the file, for one-off overrides.
+// Settings live in a JSON file in the pi config dir — settings only, no env. The first file
+// to define a key wins, checked highest-priority first:
+//   ./.pi/extensions/oh-my-posh.json                 (project; preferred)
+//   ./.pi/oh-my-posh.json                            (legacy project)
+//   $PI_CODING_AGENT_DIR/extensions/oh-my-posh.json  (global; preferred)
+//   $PI_CODING_AGENT_DIR/oh-my-posh.json             (legacy global)
+// (default $PI_CODING_AGENT_DIR is ~/.pi/agent.) Every field is optional. See
+// oh-my-posh.example.json.
 //
 // {
 //   "config": "~/.config/oh-my-posh/pi.toml", // omp theme; omit for auto-detect
@@ -118,6 +154,7 @@ interface PiExtensionApi {
 //   "prompt": "primary",
 //   "gaugeWidth": 10, "gaugeMarked": "▰", "gaugeUnmarked": "▱",
 //   "status": "all",              // "all" | "none" | "k1,k2" | ["k1","k2"]
+//   "statusToggles": { "*": true, "pi-lens": false }, // per-key show/hide
 //   "statusSeparator": "  ",
 //   "icons": "default",           // "default" | "none" | { "📡": "<glyph>", ... }
 //   "lensLabel": false            // false | true (=> "lens") | "word"
@@ -131,6 +168,8 @@ interface OmpSettings {
   gaugeMarked?: string;
   gaugeUnmarked?: string;
   status?: string | string[];
+  /** Per-key show/hide toggles (mirrors zentui's extensionStatuses): { "*": false, "pi-lens": true }. */
+  statusToggles?: Record<string, boolean>;
   statusSeparator?: string;
   icons?: "default" | "none" | Record<string, string>;
   lensLabel?: boolean | string;
@@ -140,14 +179,28 @@ function expandHome(p: string): string {
   return p.replace(/^~(?=\/|$)/, process.env.HOME || homedir());
 }
 
-function loadSettings(): OmpSettings {
+/** pi's agent dir: PI_CODING_AGENT_DIR when set, else ~/.pi/agent. */
+function piAgentDir(): string {
   const home = process.env.HOME || homedir();
-  const agentDir = process.env.PI_CODING_AGENT_DIR || join(home, ".pi", "agent");
-  const files = [join(agentDir, "oh-my-posh.json"), join(process.cwd(), ".pi", "oh-my-posh.json")];
+  return process.env.PI_CODING_AGENT_DIR || join(home, ".pi", "agent");
+}
+
+function loadSettings(): OmpSettings {
+  const agentDir = piAgentDir();
+  const cwd = process.cwd();
+  // First file to define a key wins. Ordered highest priority first: extensions/ subdir
+  // over the legacy root path, and project-local over global.
+  const files = [
+    join(cwd, ".pi", "extensions", "oh-my-posh.json"),
+    join(cwd, ".pi", "oh-my-posh.json"),
+    join(agentDir, "extensions", "oh-my-posh.json"),
+    join(agentDir, "oh-my-posh.json"),
+  ];
   let cfg: OmpSettings = {};
   for (const f of files) {
     try {
-      cfg = { ...cfg, ...(JSON.parse(readFileSync(f, "utf8")) as OmpSettings) };
+      // Earlier files win: keep already-set keys, only fill in the gaps.
+      cfg = { ...(JSON.parse(readFileSync(f, "utf8")) as OmpSettings), ...cfg };
     } catch {
       /* missing or invalid — ignore */
     }
@@ -156,25 +209,25 @@ function loadSettings(): OmpSettings {
 }
 const SETTINGS = loadSettings();
 
-const BIN = process.env.PI_OMP_BIN || SETTINGS.bin || "oh-my-posh";
-const PROMPT_TYPE = process.env.PI_OMP_PROMPT || SETTINGS.prompt || "primary";
+const BIN = SETTINGS.bin || "oh-my-posh";
+const PROMPT_TYPE = SETTINGS.prompt || "primary";
 const GAUGE_WIDTH = clampInt(
-  process.env.PI_OMP_GAUGE_WIDTH ?? (SETTINGS.gaugeWidth != null ? String(SETTINGS.gaugeWidth) : undefined),
+  SETTINGS.gaugeWidth == null ? undefined : String(SETTINGS.gaugeWidth),
   10,
   1,
   40,
 );
-const GAUGE_MARKED = process.env.PI_OMP_GAUGE_MARKED || SETTINGS.gaugeMarked || "▰";
-const GAUGE_UNMARKED = process.env.PI_OMP_GAUGE_UNMARKED || SETTINGS.gaugeUnmarked || "▱";
+const GAUGE_MARKED = SETTINGS.gaugeMarked || "▰";
+const GAUGE_UNMARKED = SETTINGS.gaugeUnmarked || "▱";
 
 /**
- * Pick the Oh My Posh theme, first existing wins — no env needed in the common case:
- *   1. PI_OMP_CONFIG env, then settings.config (both ~-expanded)
+ * Pick the Oh My Posh theme, first existing wins:
+ *   1. settings.config (~-expanded)
  *   2. <omp config dir>/pi.*  (~/.config/oh-my-posh, $XDG, or $POSH_THEMES_PATH dir)
  *   3. bundled pi.omp.toml, then pi.omp.json (generic default, always exists)
  */
 function resolveConfig(): string {
-  const explicit = process.env.PI_OMP_CONFIG || SETTINGS.config;
+  const explicit = SETTINGS.config;
   if (explicit) return expandHome(explicit);
   const here = dirname(fileURLToPath(import.meta.url));
   const home = process.env.HOME || homedir();
@@ -184,7 +237,14 @@ function resolveConfig(): string {
     join(xdg, "oh-my-posh"),
     join(home, ".config", "oh-my-posh"),
   ].filter(Boolean);
-  const names = ["pi.toml", "pi.omp.toml", "pi.json", "pi.omp.json", "pi.yaml", "pi.omp.yaml"];
+  const names = [
+    "pi.toml",
+    "pi.omp.toml",
+    "pi.json",
+    "pi.omp.json",
+    "pi.yaml",
+    "pi.omp.yaml",
+  ];
   const candidates: string[] = [];
   for (const d of ompDirs) for (const n of names) candidates.push(join(d, n));
   candidates.push(join(here, "pi.omp.toml"), join(here, "pi.omp.json"));
@@ -205,18 +265,18 @@ const CONFIG_PATH = resolveConfig();
 //   "a,b,c" / [..]  -> allowlist of exact status keys, in that order
 // Per-key vars (PI_STATUS_<KEY>) are always exported regardless of this.
 const STATUS_SELECT = (
-  process.env.PI_OMP_STATUS ??
-  (Array.isArray(SETTINGS.status) ? SETTINGS.status.join(",") : SETTINGS.status) ??
-  "all"
+  (Array.isArray(SETTINGS.status)
+    ? SETTINGS.status.join(",")
+    : SETTINGS.status) ?? "all"
 ).trim();
-const STATUS_SEP = process.env.PI_OMP_STATUS_SEP ?? SETTINGS.statusSeparator ?? "  ";
+const STATUS_SEP = SETTINGS.statusSeparator ?? "  ";
 
 // Other extensions embed emoji directly in their status text (remote-pi uses 📡 🟢 🟡 📱).
 // Remap them to monochrome Nerd Font glyphs so the footer stays consistent with a powerline
 // theme. State that emoji encode via COLOR (🟢 on / 🟡 waiting) is preserved via glyph SHAPE
 // (filled vs hollow circle), since a themed segment paints one foreground.
 // Override via settings.icons ("none" to disable, or a { "📡": "<glyph>" } map merged over
-// defaults) or PI_OMP_ICONS="📡=,🟢=" (env wins).
+// the defaults).
 const DEFAULT_ICONS: Record<string, string> = {
   "📡": "", // nf-fa-wifi — broadcast/relay session
   "🟢": "", // nf-fa-circle — filled (ready/on)
@@ -228,8 +288,8 @@ const DEFAULT_ICONS: Record<string, string> = {
   "⚡": "", // nf-fa-bolt
 };
 function parseIconMap(): Record<string, string> {
-  const src = process.env.PI_OMP_ICONS ?? SETTINGS.icons ?? "default";
-  if (src === "none" || src === "off") return {};
+  const src = SETTINGS.icons ?? "default";
+  if (src === "none") return {};
   const map: Record<string, string> = { ...DEFAULT_ICONS };
   if (typeof src === "object") return { ...map, ...src }; // { "📡": "<glyph>" } merged over defaults
   const raw = String(src).trim();
@@ -260,7 +320,12 @@ let warned = false;
 
 // ---- helpers -----------------------------------------------------------------
 
-function clampInt(v: string | undefined, def: number, lo: number, hi: number): number {
+function clampInt(
+  v: string | undefined,
+  def: number,
+  lo: number,
+  hi: number,
+): number {
   const n = v ? Number.parseInt(v, 10) : Number.NaN;
   if (!Number.isFinite(n)) return def;
   return Math.min(hi, Math.max(lo, n));
@@ -310,7 +375,13 @@ function remapIcons(s: string): string {
 
 /** status key -> env-var suffix: "remote-pi:session" -> "REMOTE_PI_SESSION". */
 function statusEnvKey(key: string): string {
-  return "PI_STATUS_" + key.toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_|_$/g, "");
+  return (
+    "PI_STATUS_" +
+    key
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, "_")
+      .replace(/^_|_$/g, "")
+  );
 }
 
 // Some extensions publish a structured (JSON) status meant for a footer that understands
@@ -332,10 +403,10 @@ const LENS_CATS: Array<[string, string]> = [
   ["s", "lsp"],
   ["t", "tsc"],
 ];
-// Optional descriptor before the lens icons. PI_OMP_LENS_LABEL=1 -> "lens", or any
+// Optional descriptor before the lens icons. settings.lensLabel true -> "lens", or any
 // custom word; empty (default) shows just the magnifier + icons.
 const LENS_LABEL = (() => {
-  const s = process.env.PI_OMP_LENS_LABEL ?? SETTINGS.lensLabel;
+  const s = SETTINGS.lensLabel;
   if (s === undefined || s === false) return "";
   if (s === true) return "lens ";
   const v = String(s).trim();
@@ -356,9 +427,13 @@ function decodePiLens(text: string): string | null {
   const present = LENS_CATS.filter(([, key]) => key in o);
   if (!present.length) return null;
   // Hide until there's real info — all pending/skipped at session start is just noise.
-  const real = present.some(([, key]) => o[key] !== "pending" && o[key] !== "skipped");
+  const real = present.some(
+    ([, key]) => o[key] !== "pending" && o[key] !== "skipped",
+  );
   if (!real) return "";
-  const parts = present.map(([lbl, key]) => `${lbl}${LENS_ICON[String(o[key])] ?? "\uf128"}`);
+  const parts = present.map(
+    ([lbl, key]) => `${lbl}${LENS_ICON[String(o[key])] ?? "\uf128"}`,
+  );
   return `\uf002 ${LENS_LABEL}${parts.join(" ")}`; // nf-fa-search + p… l… s… t…
 }
 
@@ -378,6 +453,22 @@ function decodeStatus(key: string, text: string): string {
 }
 
 /** Read published extension statuses (decoded, ANSI stripped, icon-remapped). */
+// OMP's own per-key status "presence" toggles, mirroring zentui's extensionStatuses switches.
+// We keep our own because the recommended zentui setup runs its footer as "native", which
+// hides zentui's own extension-status controls — so those can't drive us. Shape in settings:
+//   "statusToggles": { "*": false, "pi-lens": true }
+// A key's own value wins; "*" is the default for unlisted keys; absent entirely => shown.
+// Mutable so the /oh-my-posh editor can flip a chip on/off live (it also persists to the file).
+const STATUS_TOGGLES: Record<string, boolean> =
+  SETTINGS.statusToggles && typeof SETTINGS.statusToggles === "object"
+    ? SETTINGS.statusToggles
+    : {};
+function hiddenByToggle(key: string): boolean {
+  if (key in STATUS_TOGGLES) return STATUS_TOGGLES[key] === false;
+  if ("*" in STATUS_TOGGLES) return STATUS_TOGGLES["*"] === false;
+  return false;
+}
+
 function readStatuses(): Array<[string, string]> {
   let map: ReadonlyMap<string, string> | undefined;
   try {
@@ -388,6 +479,7 @@ function readStatuses(): Array<[string, string]> {
   if (!map) return [];
   const out: Array<[string, string]> = [];
   for (const [k, v] of map) {
+    if (hiddenByToggle(k)) continue; // OMP's own per-key presence toggles
     const decoded = decodeStatus(k, stripAnsi(String(v ?? "")));
     const text = remapIcons(decoded).trim();
     if (text) out.push([k, text]);
@@ -395,12 +487,14 @@ function readStatuses(): Array<[string, string]> {
   return out;
 }
 
-/** Apply the PI_OMP_STATUS allowlist to the aggregated set. */
+/** Apply the `status` allowlist setting to the aggregated set. */
 function selectStatuses(entries: Array<[string, string]>): string[] {
   const sel = STATUS_SELECT.toLowerCase();
   if (sel === "none") return [];
   if (sel === "" || sel === "all") return entries.map(([, v]) => v);
-  const order = STATUS_SELECT.split(",").map((s) => s.trim()).filter(Boolean);
+  const order = STATUS_SELECT.split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
   const byKey = new Map(entries);
   return order.map((k) => byKey.get(k)).filter((v): v is string => !!v);
 }
@@ -448,7 +542,11 @@ function buildEnv(ctx: Ctx): Record<string, string> {
   return env;
 }
 
-function runOmp(env: Record<string, string>, width: number, cwd: string): Promise<string[]> {
+function runOmp(
+  env: Record<string, string>,
+  width: number,
+  cwd: string,
+): Promise<string[]> {
   const args = [
     "print",
     PROMPT_TYPE,
@@ -496,7 +594,7 @@ async function refresh(): Promise<void> {
       warned = true;
       const msg =
         (err as { code?: string })?.code === "ENOENT"
-          ? `pi-oh-my-posh: '${BIN}' not found on PATH — install Oh My Posh or set PI_OMP_BIN.`
+          ? `pi-oh-my-posh: '${BIN}' not found on PATH — install Oh My Posh or set "bin" in oh-my-posh.json.`
           : `pi-oh-my-posh: oh-my-posh failed (${String((err as Error)?.message || err)}).`;
       currentCtx?.ui.notify?.(msg, "warning");
       cachedLines = [];
@@ -523,7 +621,12 @@ function visibleWidth(s: string): number {
         i++;
       } else if (s[i] === "]") {
         i++;
-        while (i < s.length && s[i] !== "\x07" && !(s[i] === "\x1b" && s[i + 1] === "\\")) i++;
+        while (
+          i < s.length &&
+          s[i] !== "\x07" &&
+          !(s[i] === "\x1b" && s[i + 1] === "\\")
+        )
+          i++;
         i += s[i] === "\x1b" ? 2 : 1;
       } else {
         i++;
@@ -551,7 +654,12 @@ function truncateVisible(s: string, width: number): string {
         i++;
       } else if (s[i] === "]") {
         i++;
-        while (i < s.length && s[i] !== "\x07" && !(s[i] === "\x1b" && s[i + 1] === "\\")) i++;
+        while (
+          i < s.length &&
+          s[i] !== "\x07" &&
+          !(s[i] === "\x1b" && s[i + 1] === "\\")
+        )
+          i++;
         i += s[i] === "\x1b" ? 2 : 1;
       } else {
         i++;
@@ -582,7 +690,11 @@ function stopStreamTimer(): void {
 
 // ---- footer component --------------------------------------------------------
 
-function footerFactory(tui: Tui, _theme: unknown, footerData: FooterDataProvider): FooterComponent {
+function footerFactory(
+  tui: Tui,
+  _theme: unknown,
+  footerData: FooterDataProvider,
+): FooterComponent {
   tuiRef = tui;
   footerDataRef = footerData;
   let unsub: (() => void) | { dispose?(): void } | void;
@@ -642,6 +754,7 @@ function installDeferred(ctx: Ctx): void {
   }, 60);
 }
 
+/** Stop rendering: give up the footer slot. */
 function uninstall(ctx: Ctx): void {
   stopStreamTimerHard();
   ctx.ui.setFooter(undefined);
@@ -654,13 +767,170 @@ function stopStreamTimerHard(): void {
   }
 }
 
+// ---- settings editor (/oh-my-posh) -------------------------------------------
+
+/** The settings file to write: first existing in the read order, else the preferred global. */
+function settingsFilePath(): string {
+  const agentDir = piAgentDir();
+  const cwd = process.cwd();
+  const files = [
+    join(cwd, ".pi", "extensions", "oh-my-posh.json"),
+    join(cwd, ".pi", "oh-my-posh.json"),
+    join(agentDir, "extensions", "oh-my-posh.json"),
+    join(agentDir, "oh-my-posh.json"),
+  ];
+  for (const f of files) {
+    try {
+      if (existsSync(f)) return f;
+    } catch {
+      /* ignore */
+    }
+  }
+  return join(agentDir, "extensions", "oh-my-posh.json");
+}
+
+/** Merge a patch into the settings file (writes through a symlink to its target). */
+function writeSettings(patch: Partial<OmpSettings>): boolean {
+  const file = settingsFilePath();
+  let current: OmpSettings = {};
+  try {
+    current = JSON.parse(readFileSync(file, "utf8")) as OmpSettings;
+  } catch {
+    /* new file */
+  }
+  try {
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(
+      file,
+      `${JSON.stringify({ ...current, ...patch }, null, 2)}\n`,
+    );
+    return true;
+  } catch (err) {
+    currentCtx?.ui.notify?.(
+      `pi-oh-my-posh: could not save settings (${String((err as Error)?.message || err)}).`,
+      "warning",
+    );
+    return false;
+  }
+}
+
+/** All status keys other extensions currently publish (unfiltered by toggles). */
+function liveStatusKeys(): string[] {
+  let map: ReadonlyMap<string, string> | undefined;
+  try {
+    map = footerDataRef?.getExtensionStatuses?.();
+  } catch {
+    map = undefined;
+  }
+  return map ? [...map.keys()].sort((a, b) => a.localeCompare(b)) : [];
+}
+
+const SETTINGS_LIST_THEME: SettingsListTheme = {
+  label: (t, sel) => (sel ? `\x1b[1m${t}\x1b[0m` : t),
+  value: (t, sel) => (sel ? `\x1b[36m${t}\x1b[0m` : `\x1b[2m${t}\x1b[0m`),
+  description: (t) => `\x1b[2m${t}\x1b[0m`,
+  cursor: "\u203a",
+  hint: (t) => `\x1b[2m${t}\x1b[0m`,
+};
+
+function buildSettingItems(): SettingItem[] {
+  const items: SettingItem[] = [
+    {
+      id: "enabled",
+      label: "Footer",
+      currentValue: enabled ? "on" : "off",
+      values: ["on", "off"],
+      description: "Render the Oh My Posh footer this session",
+    },
+    {
+      id: "lensLabel",
+      label: "pi-lens label",
+      currentValue: LENS_LABEL ? "lens" : "off",
+      values: ["off", "lens"],
+      description: "Prefix pi-lens chips with a label (reload pi to apply)",
+    },
+    {
+      id: "icons",
+      label: "Emoji icons",
+      currentValue: SETTINGS.icons === "none" ? "none" : "default",
+      values: ["default", "none"],
+      description:
+        "Remap status emoji to Nerd Font glyphs (reload pi to apply)",
+    },
+    {
+      id: "hideDefault",
+      label: "Unlisted status chips",
+      currentValue: STATUS_TOGGLES["*"] === false ? "hide" : "show",
+      values: ["show", "hide"],
+      description: "Default for status keys without an explicit toggle below",
+    },
+  ];
+  for (const key of liveStatusKeys()) {
+    items.push({
+      id: `toggle:${key}`,
+      label: `  chip: ${key}`,
+      currentValue: hiddenByToggle(key) ? "hide" : "show",
+      values: ["show", "hide"],
+      // Show the theme template var so this doubles as key discovery for hand-authoring.
+      description: `show/hide — {{ .Env.${statusEnvKey(key)} }}`,
+    });
+  }
+  return items;
+}
+
+function onSettingChange(ctx: Ctx, id: string, val: string): void {
+  if (id === "enabled") {
+    enabled = val === "on";
+    if (enabled) installDeferred(ctx);
+    else uninstall(ctx);
+    return;
+  }
+  if (id === "hideDefault") {
+    STATUS_TOGGLES["*"] = val === "show";
+    writeSettings({ statusToggles: { ...STATUS_TOGGLES } });
+    void refresh();
+    return;
+  }
+  if (id.startsWith("toggle:")) {
+    STATUS_TOGGLES[id.slice("toggle:".length)] = val === "show";
+    writeSettings({ statusToggles: { ...STATUS_TOGGLES } });
+    void refresh();
+    return;
+  }
+  if (id === "lensLabel") {
+    writeSettings({ lensLabel: val === "lens" });
+    ctx.ui.notify?.("pi-lens label saved — reload pi to apply.", "info");
+    return;
+  }
+  if (id === "icons") {
+    writeSettings({ icons: val === "none" ? "none" : "default" });
+    ctx.ui.notify?.("Icon mode saved — reload pi to apply.", "info");
+  }
+}
+
+async function openSettings(ctx: Ctx): Promise<void> {
+  await ctx.ui.custom?.<void>((tui, _theme, _kb, done) => {
+    let list: SettingsList;
+    list = new SettingsList(
+      buildSettingItems(),
+      10,
+      SETTINGS_LIST_THEME,
+      (id, value) => {
+        onSettingChange(ctx, id, value);
+        list.updateValue(id, value);
+        tui.requestRender?.();
+      },
+      () => done(undefined),
+    );
+    return list;
+  });
+}
+
 // ---- extension entry ---------------------------------------------------------
 
 export default function (pi: PiExtensionApi): void {
   pi.on("session_start", (_e, ctx) => {
     currentCtx = ctx;
-    // Defer so we win the footer slot over full-TUI extensions (e.g. pi-open-tui) that
-    // install their footer synchronously on session_start. See installDeferred().
     if (enabled) installDeferred(ctx);
   });
 
@@ -685,33 +955,22 @@ export default function (pi: PiExtensionApi): void {
   });
 
   pi.registerCommand("oh-my-posh", {
-    description: "Toggle the Oh My Posh footer for this session",
-    handler: (_args, ctx) => {
-      enabled = !enabled;
+    description: "Oh My Posh settings (footer on/off, status chip show/hide)",
+    handler: async (_args, ctx) => {
       currentCtx = ctx;
+      if (ctx.hasUI !== false && ctx.ui.custom) {
+        await openSettings(ctx);
+        return;
+      }
+      // No interactive UI — fall back to a plain on/off toggle.
+      enabled = !enabled;
       if (enabled) {
-        install(ctx);
+        installDeferred(ctx);
         ctx.ui.notify?.("Oh My Posh footer: on", "info");
       } else {
         uninstall(ctx);
         ctx.ui.notify?.("Oh My Posh footer: off", "info");
       }
-    },
-  });
-
-  // Discovery: list the extension statuses currently available to surface, with the
-  // env-var name each maps to, so you know what to put in PI_OMP_STATUS / your theme.
-  pi.registerCommand("oh-my-posh-status", {
-    description: "List extension statuses available to the Oh My Posh footer",
-    handler: (_args, ctx) => {
-      currentCtx = ctx;
-      const entries = readStatuses();
-      if (!entries.length) {
-        ctx.ui.notify?.("No extension statuses published right now.", "info");
-        return;
-      }
-      const lines = entries.map(([k, v]) => `${k}  →  {{ .Env.${statusEnvKey(k)} }}   (${v})`);
-      ctx.ui.notify?.(`Available statuses:\n${lines.join("\n")}`, "info");
     },
   });
 }

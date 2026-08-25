@@ -1,5 +1,7 @@
 {
-  "//": "Copy to $PI_CODING_AGENT_DIR/oh-my-posh.json (default ~/.pi/agent/oh-my-posh.json; on this machine ~/.config/pi/agent/oh-my-posh.json), or project-local ./.pi/oh-my-posh.json. All fields optional; a matching PI_OMP_* env var overrides the file.",
+  "//": "Copy to $PI_CODING_AGENT_DIR/extensions/oh-my-posh.json (preferred; default ~/.pi/agent/extensions/oh-my-posh.json), or project-local ./.pi/extensions/oh-my-posh.json. Legacy root paths (without extensions/) are still read. All fields optional; configuration is settings-only (no env overrides).",
+
+  "//footer": "OMP owns pi's footer and draws it all. For zentui, set its footer.style to native so it yields the slot.",
 
   "config": "~/.config/oh-my-posh/pi.toml",
   "bin": "oh-my-posh",
@@ -10,6 +12,8 @@
   "gaugeUnmarked": "▱",
 
   "status": "all",
+  "//statusToggles": "Per-key show/hide for extension-status chips (mirrors zentui). '*' is the default for unlisted keys.",
+  "statusToggles": { "*": true },
   "statusSeparator": "  ",
 
   "icons": "default",
