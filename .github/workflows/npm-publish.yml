@@ -3,7 +3,7 @@ name: Publish Package
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
   workflow_dispatch:
 
 permissions:
@@ -19,7 +19,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: '24.x'
+          node-version: "24.x"
           # NB: no registry-url — it writes an .npmrc expecting NODE_AUTH_TOKEN,
           # which shadows OIDC trusted publishing and makes `npm publish` 404.
 

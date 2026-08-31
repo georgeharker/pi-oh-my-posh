@@ -611,7 +611,7 @@ async function refresh(): Promise<void> {
 /** ANSI-aware visible width: counts printable code points, skips escape sequences. */
 function visibleWidth(s: string): number {
   let w = 0;
-  for (let i = 0; i < s.length; ) {
+  for (let i = 0; i < s.length;) {
     if (s[i] === "\x1b") {
       // CSI ... final byte, or OSC ... BEL/ST — skip the whole sequence.
       i++;
@@ -644,7 +644,7 @@ function truncateVisible(s: string, width: number): string {
   if (visibleWidth(s) <= width) return s;
   let out = "";
   let w = 0;
-  for (let i = 0; i < s.length; ) {
+  for (let i = 0; i < s.length;) {
     if (s[i] === "\x1b") {
       const start = i;
       i++;
