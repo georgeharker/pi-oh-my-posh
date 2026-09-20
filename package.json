@@ -19,7 +19,8 @@
   "pi": {
     "extensions": [
       "./pi-oh-my-posh.ts"
-    ]
+    ],
+    "image": "https://cdn.jsdelivr.net/npm/@geohar/pi-oh-my-posh/assets/preview.png"
   },
   "keywords": [
     "pi-package",
@@ -44,7 +45,8 @@
     "pi-block.snippet.json",
     "oh-my-posh.example.json",
     "install.sh",
-    "README.md"
+    "README.md",
+    "assets"
   ],
   "engines": {
     "node": ">=20"
