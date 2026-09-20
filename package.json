@@ -20,7 +20,7 @@
     "extensions": [
       "./pi-oh-my-posh.ts"
     ],
-    "image": "https://cdn.jsdelivr.net/npm/@geohar/pi-oh-my-posh/assets/preview.png"
+    "image": "https://raw.githubusercontent.com/georgeharker/pi-oh-my-posh/main/assets/preview.png"
   },
   "keywords": [
     "pi-package",
